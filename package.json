@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "NEON SERPENT - a zero-build 3D neon snake game for the web.",
+  "description": "NEON SERPENT - a zero-build true-3D neon snake game for the web.",
   "scripts": {
     "start": "node serve.mjs",
     "test": "node --test tests/engine.test.mjs"

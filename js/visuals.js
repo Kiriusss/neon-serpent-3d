@@ -1,12 +1,15 @@
 /**
- * All the Three.js character work: snake, food, particles, glow helpers.
+ * Three.js character work for the 3D volume arena.
  */
 import * as THREE from "three";
+import { GRID_SIZE } from "./engine.js";
 
 /* ------------------------------------------------------------
-   Little helpers
+   Geometry constants and helpers
    ------------------------------------------------------------ */
 
+export const CELL_CENTER = (GRID_SIZE - 1) / 2;
+export const ARENA_FLOOR = -GRID_SIZE / 2;
 export const HEAD_COLOR = new THREE.Color("#78ff00");
 export const TAIL_COLOR = new THREE.Color("#00e8d0");
 export const LIME = 0xc9ff4d;
@@ -14,13 +17,28 @@ export const MINT = 0x58ffd0;
 export const CORAL = 0xff7952;
 export const CREAM = 0xfff1c7;
 
+const FORWARD = new THREE.Vector3(0, 0, 1);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+
 const lerp = (a, b, t) => a + (b - a) * t;
 
-function dampAngle(current, target, lambda, dt) {
-  let delta = target - current;
-  while (delta > Math.PI) delta -= Math.PI * 2;
-  while (delta < -Math.PI) delta += Math.PI * 2;
-  return current + delta * (1 - Math.exp(-lambda * dt));
+export function cellToWorld(cell) {
+  return new THREE.Vector3(
+    cell.x - CELL_CENTER,
+    cell.y - CELL_CENTER,
+    cell.z - CELL_CENTER
+  );
+}
+
+export function directionQuaternion(x, y, z) {
+  const q = new THREE.Quaternion();
+  if (z === -1) q.setFromAxisAngle(Y_AXIS, Math.PI);
+  else if (x === 1) q.setFromAxisAngle(Y_AXIS, Math.PI / 2);
+  else if (x === -1) q.setFromAxisAngle(Y_AXIS, -Math.PI / 2);
+  else if (y === 1) q.setFromAxisAngle(X_AXIS, -Math.PI / 2);
+  else if (y === -1) q.setFromAxisAngle(X_AXIS, Math.PI / 2);
+  return q;
 }
 
 export function createGlowTexture(size = 128) {
@@ -44,9 +62,6 @@ export function createGlowTexture(size = 128) {
   return texture;
 }
 
-/**
- * A soft, beveled cube. The classic box primitive is too sharp for a snake made of light.
- */
 export function createSegmentGeometry({
   width = 0.68,
   height = 0.68,
@@ -83,14 +98,28 @@ export function createSegmentGeometry({
   return geometry;
 }
 
-/** A zig-zag S for the attract screen. Head first. */
-export const DEMO_SNAKE = Object.freeze([
-  { x: 11, z: 12 }, { x: 10, z: 12 }, { x: 9, z: 12 }, { x: 8, z: 12 },
-  { x: 7, z: 12 }, { x: 7, z: 11 }, { x: 7, z: 10 }, { x: 8, z: 10 },
-  { x: 9, z: 10 }, { x: 10, z: 10 }, { x: 11, z: 10 }, { x: 12, z: 10 },
-  { x: 12, z: 9 }, { x: 12, z: 8 }, { x: 11, z: 8 }, { x: 10, z: 8 },
-  { x: 9, z: 8 }, { x: 8, z: 8 }, { x: 7, z: 8 }, { x: 6, z: 8 },
-]);
+/** A 3D coiled demo snake for the attract screen. Head first. */
+function buildDemoSnake() {
+  const path = [{ x: 2, y: 2, z: 2 }];
+  const advance = (dx, dy, dz, count) => {
+    for (let i = 0; i < count; i += 1) {
+      const last = path[path.length - 1];
+      path.push({ x: last.x + dx, y: last.y + dy, z: last.z + dz });
+    }
+  };
+  advance(1, 0, 0, 4);
+  advance(0, 0, 1, 4);
+  advance(0, 1, 0, 3);
+  advance(-1, 0, 0, 3);
+  advance(0, 0, -1, 4);
+  advance(0, 1, 0, 2);
+  advance(1, 0, 0, 3);
+  advance(0, 0, 1, 2);
+  return path.slice(-24).reverse();
+}
+
+export const DEMO_SNAKE = Object.freeze(buildDemoSnake());
+export const DEMO_FOOD = Object.freeze({ x: 2, y: 7, z: 7 });
 
 /* ------------------------------------------------------------
    Snake
@@ -101,13 +130,13 @@ export class SnakeView {
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
+    this.scene = scene;
     this.glowTexture = glowTexture;
 
     this.segmentGeometry = createSegmentGeometry();
     this.headGeometry = createSegmentGeometry({ width: 0.72, height: 0.72, depth: 0.66 });
     this.segmentMeshes = [];
     this.segmentMaterials = [];
-    this.headAngle = Math.PI;
     this.deathSeeds = [];
 
     this.auraMaterial = new THREE.SpriteMaterial({
@@ -120,14 +149,13 @@ export class SnakeView {
       toneMapped: false,
     });
 
-    // A palette reads as a continuous light gradient from head to tail.
     for (let i = 0; i < 24; i += 1) {
       const t = i / 23;
       const color = new THREE.Color().lerpColors(HEAD_COLOR, TAIL_COLOR, t);
       const material = new THREE.MeshStandardMaterial({
         color,
-        emissive: color.clone().multiplyScalar(0.7),
-        emissiveIntensity: 1.0,
+        emissive: color.clone().multiplyScalar(0.78),
+        emissiveIntensity: 1.18,
         roughness: 0.52,
         metalness: 0.0,
         toneMapped: false,
@@ -145,6 +173,7 @@ export class SnakeView {
     });
 
     this.buildHead(glowTexture);
+    this.buildFloorProjection();
   }
 
   buildHead(glowTexture) {
@@ -181,10 +210,7 @@ export class SnakeView {
       this.headGroup.add(pupil);
     }
 
-    this.tongueMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff6d55,
-      toneMapped: false,
-    });
+    this.tongueMaterial = new THREE.MeshBasicMaterial({ color: 0xff6d55, toneMapped: false });
     this.tongue = new THREE.Group();
     const tongueGeometry = new THREE.BoxGeometry(0.022, 0.018, 0.21);
     const leftFork = new THREE.Mesh(tongueGeometry, this.tongueMaterial);
@@ -218,6 +244,63 @@ export class SnakeView {
     this.headGroup.add(this.headLight);
   }
 
+  buildFloorProjection() {
+    this.floorY = ARENA_FLOOR + 0.02;
+    this.headProjection = new THREE.Mesh(
+      new THREE.RingGeometry(0.28, 0.43, 40),
+      new THREE.MeshBasicMaterial({
+        color: MINT,
+        transparent: true,
+        opacity: 0.24,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+    );
+    this.headProjection.rotation.x = -Math.PI / 2;
+    this.headProjection.visible = false;
+    this.scene.add(this.headProjection);
+
+    this.headBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.016, 1, 6),
+      new THREE.MeshBasicMaterial({
+        color: MINT,
+        transparent: true,
+        opacity: 0.1,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+    );
+    this.headBeam.visible = false;
+    this.scene.add(this.headBeam);
+
+    const half = GRID_SIZE / 2;
+    const levelGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-half, 0, -half),
+      new THREE.Vector3(half, 0, -half),
+      new THREE.Vector3(half, 0, half),
+      new THREE.Vector3(-half, 0, half),
+    ]);
+    this.levelSquare = new THREE.LineLoop(
+      levelGeometry,
+      new THREE.LineDashedMaterial({
+        color: MINT,
+        transparent: true,
+        opacity: 0.16,
+        dashSize: 0.18,
+        gapSize: 0.2,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+    );
+    this.levelSquare.computeLineDistances();
+    this.levelSquare.visible = false;
+    this.scene.add(this.levelSquare);
+  }
+
   ensureSegments(count) {
     while (this.segmentMeshes.length < count) {
       const index = this.segmentMeshes.length;
@@ -247,7 +330,7 @@ export class SnakeView {
     };
   }
 
-  revive() {
+  revive(direction = { x: 0, y: 0, z: -1 }) {
     this.group.visible = true;
     this.headGroup.visible = true;
     this.segmentMeshes.forEach((mesh) => {
@@ -256,20 +339,12 @@ export class SnakeView {
       if (mesh.userData.aura) mesh.userData.aura.visible = false;
     });
     this.deathSeeds = [];
-    this.headAngle = Math.PI;
+    this.headGroup.quaternion.copy(directionQuaternion(direction.x, direction.y, direction.z));
+    this.headProjection.visible = false;
+    this.headBeam.visible = false;
+    this.levelSquare.visible = true;
   }
 
-  /**
-   * @param {object} options
-   * @param {Array} options.snake logical cells, head first
-   * @param {Array} options.prevSnake cells from the previous tick
-   * @param {number} options.progress 0..1 between prevSnake and snake
-   * @param {number} options.time elapsed seconds
-   * @param {object} options.direction current direction
-   * @param {number} options.dt frame delta in seconds
-   * @param {number} options.headPulse 0..1 eat flash
-   * @param {number} options.deathT 0..1 death animation
-   */
   update({ snake, prevSnake, progress, time, direction, dt, headPulse = 0, deathT = 0 }) {
     if (!snake || !snake.length) return;
     this.group.visible = true;
@@ -283,14 +358,22 @@ export class SnakeView {
       const mesh = this.segmentMeshes[i - 1];
       const from = prevSnake[Math.min(i, prevSnake.length - 1)] || snake[i];
       const to = snake[i];
-      const x = (lerp(from.x, to.x, progress) - 8);
-      const z = (lerp(from.z, to.z, progress) - 8);
+      const x = lerp(from.x - CELL_CENTER, to.x - CELL_CENTER, progress);
+      const y = lerp(from.y - CELL_CENTER, to.y - CELL_CENTER, progress);
+      const z = lerp(from.z - CELL_CENTER, to.z - CELL_CENTER, progress);
       const taper = 1 - 0.24 * (i / Math.max(1, n));
       const wave = 1 + Math.sin(time * 3.1 - i * 0.55) * 0.018;
-      const materialIndex = Math.min(count - 1, Math.round((i / Math.max(1, n - 1)) * (count - 1)));
+      const materialIndex = Math.min(
+        count - 1,
+        Math.round((i / Math.max(1, n - 1)) * (count - 1))
+      );
 
       mesh.material = this.segmentMaterials[materialIndex];
-      mesh.position.set(x, 0.425 + Math.sin(time * 3.2 - i * 0.55) * 0.014, z);
+      mesh.position.set(
+        x,
+        y + Math.sin(time * 3.2 - i * 0.55) * 0.014,
+        z
+      );
       mesh.rotation.set(0, 0, 0);
       mesh.scale.setScalar(taper * wave);
 
@@ -298,7 +381,6 @@ export class SnakeView {
       if (aura) {
         aura.visible = true;
         aura.position.copy(mesh.position);
-        aura.position.y += 0.08;
         const auraScale = 1.18 + taper * 0.28 + Math.sin(time * 2.6 - i * 0.4) * 0.05;
         aura.scale.set(auraScale, auraScale, 1);
       }
@@ -315,7 +397,7 @@ export class SnakeView {
       }
 
       mesh.visible = true;
-      if (deathT > 0.1 && mesh.userData.aura) mesh.userData.aura.visible = false;
+      if (deathT > 0.1 && aura) aura.visible = false;
     }
 
     for (let i = Math.max(0, n - 1); i < this.segmentMeshes.length; i += 1) {
@@ -327,10 +409,12 @@ export class SnakeView {
 
     const headFrom = prevSnake[0] || snake[0];
     const headTo = snake[0];
-    const hx = lerp(headFrom.x, headTo.x, progress) - 8;
-    const hz = lerp(headFrom.z, headTo.z, progress) - 8;
-    const targetAngle = Math.atan2(direction.x, direction.z);
-    this.headAngle = dampAngle(this.headAngle, targetAngle, 15, Math.min(dt, 0.05));
+    const hx = lerp(headFrom.x - CELL_CENTER, headTo.x - CELL_CENTER, progress);
+    const hy = lerp(headFrom.y - CELL_CENTER, headTo.y - CELL_CENTER, progress);
+    const hz = lerp(headFrom.z - CELL_CENTER, headTo.z - CELL_CENTER, progress);
+
+    const targetQuaternion = directionQuaternion(direction.x, direction.y, direction.z);
+    this.headGroup.quaternion.slerp(targetQuaternion, 1 - Math.exp(-16 * Math.min(dt, 0.05)));
 
     const flick = Math.sin(time * 1.65 + Math.sin(time * 0.4) * 2) > 0.72;
     const tongueTarget = flick ? 1 : 0.22;
@@ -338,8 +422,8 @@ export class SnakeView {
     this.tongue.visible = deathT < 0.05;
 
     const headScale = 1 + headPulse * 0.22 + Math.sin(time * 3.4) * 0.009;
-    this.headGroup.position.set(hx, 0.465 + Math.sin(time * 3.4) * 0.018, hz);
-    this.headGroup.rotation.y = this.headAngle;
+    const headY = hy + Math.sin(time * 3.4) * 0.018;
+    this.headGroup.position.set(hx, headY, hz);
     this.headGroup.scale.setScalar(headScale);
 
     if (deathT > 0) {
@@ -348,10 +432,30 @@ export class SnakeView {
       this.headGroup.position.x += seed.x * t * 2;
       this.headGroup.position.z += seed.z * t * 2;
       this.headGroup.position.y += seed.y * t * 0.55 - 3.2 * t * t;
-      this.headGroup.rotation.z = seed.spin * 0.5 * t;
       this.headGroup.scale.setScalar(Math.max(0.01, 1 - t * 0.55));
+      this.headProjection.visible = false;
+      this.headBeam.visible = false;
+      this.levelSquare.visible = false;
     } else {
-      this.headGroup.rotation.z = 0;
+      this.floorY = ARENA_FLOOR + 0.025;
+      this.headProjection.visible = true;
+      this.headProjection.position.set(hx, this.floorY, hz);
+      const projectionScale = 0.9 + Math.sin(time * 2.4) * 0.08;
+      this.headProjection.scale.setScalar(projectionScale);
+      this.headProjection.material.opacity = 0.2 + Math.max(0, hy + 4) * 0.02;
+      this.levelSquare.visible = true;
+      this.levelSquare.position.set(0, hy, 0);
+      this.levelSquare.material.opacity = 0.1 + Math.max(0, hy + 4) * 0.012;
+
+      const beamHeight = Math.max(0, headY - this.floorY);
+      if (beamHeight > 0.08) {
+        this.headBeam.visible = true;
+        this.headBeam.position.set(hx, this.floorY + beamHeight / 2, hz);
+        this.headBeam.scale.set(1, beamHeight, 1);
+        this.headBeam.material.opacity = 0.1 + Math.min(0.1, beamHeight * 0.015);
+      } else {
+        this.headBeam.visible = false;
+      }
     }
 
     this.headHalo.material.opacity = 0.24 + 0.1 * Math.sin(time * 2.8);
@@ -360,6 +464,9 @@ export class SnakeView {
 
   hide() {
     this.group.visible = false;
+    this.headProjection.visible = false;
+    this.headBeam.visible = false;
+    this.levelSquare.visible = false;
   }
 }
 
@@ -372,6 +479,7 @@ export class FoodView {
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
+    this.scene = scene;
 
     this.coreMaterial = new THREE.MeshPhysicalMaterial({
       color: 0xff6b32,
@@ -458,6 +566,7 @@ export class FoodView {
     this.light = new THREE.PointLight(0xff5a29, 12, 8, 2);
     this.group.add(this.light);
 
+    this.floorY = ARENA_FLOOR + 0.025;
     this.floorRing = new THREE.Mesh(
       new THREE.RingGeometry(0.28, 0.5, 48),
       new THREE.MeshBasicMaterial({
@@ -473,6 +582,20 @@ export class FoodView {
     this.floorRing.rotation.x = -Math.PI / 2;
     scene.add(this.floorRing);
 
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.014, 0.014, 1, 6),
+      new THREE.MeshBasicMaterial({
+        color: CORAL,
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+    );
+    this.beam.visible = false;
+    scene.add(this.beam);
+
     this.cell = null;
     this.spawnAt = 0;
     this.visible = false;
@@ -484,8 +607,9 @@ export class FoodView {
       return;
     }
     this.cell = { ...cell };
-    this.x = cell.x - 8;
-    this.z = cell.z - 8;
+    this.x = cell.x - CELL_CENTER;
+    this.y = cell.y - CELL_CENTER;
+    this.z = cell.z - CELL_CENTER;
     this.spawnAt = immediate ? now - 10 : now;
     this.setVisible(true);
   }
@@ -494,6 +618,7 @@ export class FoodView {
     this.visible = visible;
     this.group.visible = visible;
     this.floorRing.visible = visible;
+    this.beam.visible = visible;
   }
 
   update(time, now, dt) {
@@ -502,8 +627,9 @@ export class FoodView {
     const pop = Math.min(1, age / 0.42);
     const overshoot = 1 + 0.18 * Math.sin(Math.min(1, pop) * Math.PI * 1.35);
     const scale = pop >= 1 ? 1 : pop * overshoot;
+    const bobY = this.y + Math.sin(time * 2.4) * 0.1;
 
-    this.group.position.set(this.x, 0.56 + Math.sin(time * 2.4) * 0.1, this.z);
+    this.group.position.set(this.x, bobY, this.z);
     this.group.scale.setScalar(Math.max(0.001, scale));
 
     this.core.rotation.y += dt * 0.9;
@@ -521,20 +647,20 @@ export class FoodView {
     this.halo.material.opacity = 0.72 + Math.sin(time * 2.6) * 0.14;
     this.aura.material.opacity = 0.16 + Math.sin(time * 2.2) * 0.04;
 
-    this.floorRing.position.set(this.x, 0.015, this.z);
+    this.floorRing.position.set(this.x, this.floorY, this.z);
     const ringPulse = 0.9 + Math.sin(time * 2.7) * 0.13;
     this.floorRing.scale.setScalar(ringPulse * Math.max(0.2, scale));
     this.floorRing.material.opacity = 0.18 + 0.08 * Math.sin(time * 2.7);
-  }
 
-  burstScale() {
-    this.group.scale.setScalar(1.65);
-    this.halo.material.opacity = 1;
+    const beamHeight = Math.max(0.05, bobY - this.floorY);
+    this.beam.position.set(this.x, this.floorY + beamHeight / 2, this.z);
+    this.beam.scale.set(1, beamHeight, 1);
+    this.beam.material.opacity = 0.1 + Math.min(0.08, beamHeight * 0.009);
   }
 }
 
 /* ------------------------------------------------------------
-   Particle field
+   Particle field (unchanged, 3D ready)
    ------------------------------------------------------------ */
 
 export class ParticleField {
@@ -557,35 +683,33 @@ export class ParticleField {
     geometry.setAttribute("aSize", new THREE.BufferAttribute(this.sizes, 1));
 
     this.material = new THREE.ShaderMaterial({
-      uniforms: {
-        uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
-      },
-      vertexShader: `
-        attribute vec3 aColor;
-        attribute float aAlpha;
-        attribute float aSize;
-        uniform float uPixelRatio;
-        varying vec3 vColor;
-        varying float vAlpha;
-        void main() {
-          vColor = aColor;
-          vAlpha = aAlpha;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * uPixelRatio * (180.0 / max(1.0, -mvPosition.z));
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        varying float vAlpha;
-        void main() {
-          float d = length(gl_PointCoord - vec2(0.5));
-          if (d > 0.5 || vAlpha < 0.01) discard;
-          float core = smoothstep(0.5, 0.06, d);
-          float glow = pow(1.0 - d * 2.0, 2.0);
-          gl_FragColor = vec4(vColor * (0.8 + glow), core * vAlpha);
-        }
-      `,
+      uniforms: { uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) } },
+      vertexShader: [
+        "attribute vec3 aColor;",
+        "attribute float aAlpha;",
+        "attribute float aSize;",
+        "uniform float uPixelRatio;",
+        "varying vec3 vColor;",
+        "varying float vAlpha;",
+        "void main() {",
+        "  vColor = aColor;",
+        "  vAlpha = aAlpha;",
+        "  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);",
+        "  gl_PointSize = aSize * uPixelRatio * (180.0 / max(1.0, -mvPosition.z));",
+        "  gl_Position = projectionMatrix * mvPosition;",
+        "}",
+      ].join("\n"),
+      fragmentShader: [
+        "varying vec3 vColor;",
+        "varying float vAlpha;",
+        "void main() {",
+        "  float d = length(gl_PointCoord - vec2(0.5));",
+        "  if (d > 0.5 || vAlpha < 0.01) discard;",
+        "  float core = smoothstep(0.5, 0.06, d);",
+        "  float glow = pow(1.0 - d * 2.0, 2.0);",
+        "  gl_FragColor = vec4(vColor * (0.8 + glow), core * vAlpha);",
+        "}",
+      ].join("\n"),
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,

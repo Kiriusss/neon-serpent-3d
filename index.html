@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#060a08">
-  <meta name="description" content="NEON SERPENT —— 一个可以直接在浏览器里玩的 3D 霓虹贪吃蛇。吞噬能量，保持移动，别撞墙，也别咬到自己。">
-  <title>NEON SERPENT — 3D 贪吃蛇</title>
+  <meta name="description" content="NEON SERPENT —— 一个真 3D 霓虹贪吃蛇。在 9×9×9 的立体矩阵里，用 WASD 与 Q/E 吞噬能量，撞墙或咬到自己就结束。">
+  <title>NEON SERPENT — 立体空间里的 3D 贪吃蛇</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080d09'/%3E%3Cpath d='M7 7h18v7H14v4h11v7H7v-7h11v-4H7z' fill='%23c9ff4d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./css/style.css">
   <script type="importmap">
@@ -32,7 +32,7 @@
         </span>
         <span class="brand-type">
           <span class="brand-name">NEON<span class="brand-slash">/</span>SERPENT</span>
-          <span class="brand-sub">THREE DIMENSIONAL ARCADE</span>
+          <span class="brand-sub">TRUE 3D VOLUME ARCADE</span>
         </span>
         <span class="brand-chip">3D</span>
       </a>
@@ -83,6 +83,11 @@
         <b id="speedStat">1.0<small>×</small></b>
       </div>
       <div class="rail-rule"></div>
+      <div class="stat">
+        <span class="micro">ALTITUDE</span>
+        <b id="altStat">05<small>/9</small></b>
+      </div>
+      <div class="rail-rule"></div>
       <div class="signal">
         <span class="micro">SIGNAL</span>
         <div id="signalBars" class="signal-bars" aria-hidden="true">
@@ -92,7 +97,9 @@
     </aside>
 
     <div class="hint-bar hud" aria-hidden="true">
-      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> 移动</span>
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> 平面</span>
+      <i></i>
+      <span><kbd>Q</kbd><kbd>E</kbd> 升降</span>
       <i></i>
       <span><kbd>SPACE</kbd> 暂停</span>
       <i></i>
@@ -117,6 +124,14 @@
       <button class="touch-btn touch-down" type="button" data-dir="down" aria-label="向下">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg>
       </button>
+      <button class="touch-btn touch-rise touch-axis" type="button" data-dir="rise" aria-label="上升 (Q)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5m-5 5 5-5 5 5"/></svg>
+        <small>Y+</small>
+      </button>
+      <button class="touch-btn touch-fall touch-axis" type="button" data-dir="fall" aria-label="下降 (E)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15m-5-5 5 5 5-5"/></svg>
+        <small>Y−</small>
+      </button>
     </div>
 
     <!-- MENU / PAUSE / GAME OVER -->
@@ -127,12 +142,12 @@
           <span class="live-dot" aria-hidden="true"></span>
           <span id="screenKicker">ARCADE PROTOCOL / 001</span>
           <span class="meta-line" aria-hidden="true"></span>
-          <span>WEBGL · 17×17</span>
+          <span>WEBGL · 9×9×9</span>
         </div>
 
         <div id="startPanel" class="panel">
           <h1 class="display-title"><span>NEON</span><span class="title-accent">SERPENT</span></h1>
-          <p class="lead">钻进霓虹矩阵，吞噬能量。<br>每吃一口，身体更长，速度更快。</p>
+          <p class="lead">钻进 9×9×9 的立体矩阵，吞噬能量。<br>上下左右前后，这一次连移动方向都是三维的。</p>
 
           <div class="difficulty-wrap">
             <span class="micro">选择节奏 / PACE</span>
@@ -152,8 +167,9 @@
           </button>
 
           <div class="quick-guide">
-            <span><kbd>WASD</kbd> / <kbd>方向键</kbd> 控制方向</span>
-            <span>撞墙或咬到自己即结束</span>
+            <span><kbd>WASD</kbd> / <kbd>方向键</kbd> 平面移动</span>
+            <span><kbd>Q</kbd> 上升 · <kbd>E</kbd> 下降</span>
+            <span>撞到立体边界或咬到自己即结束</span>
           </div>
         </div>
 

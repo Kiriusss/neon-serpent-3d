@@ -10,6 +10,9 @@ import {
   ParticleField,
   createGlowTexture,
   DEMO_SNAKE,
+  DEMO_FOOD,
+  CELL_CENTER,
+  ARENA_FLOOR,
   HEAD_COLOR,
   TAIL_COLOR,
   LIME,
@@ -26,20 +29,23 @@ const STORAGE = {
   difficulty: "neonSerpent.difficulty.v1",
 };
 
-const DEMO_FOOD = { x: 12, z: 4 };
 const DIRECTION_KEYS = {
-  ArrowUp: { x: 0, z: -1 },
-  KeyW: { x: 0, z: -1 },
-  ArrowDown: { x: 0, z: 1 },
-  KeyS: { x: 0, z: 1 },
-  ArrowLeft: { x: -1, z: 0 },
-  KeyA: { x: -1, z: 0 },
-  ArrowRight: { x: 1, z: 0 },
-  KeyD: { x: 1, z: 0 },
-  up: { x: 0, z: -1 },
-  down: { x: 0, z: 1 },
-  left: { x: -1, z: 0 },
-  right: { x: 1, z: 0 },
+  ArrowUp: { x: 0, y: 0, z: -1 },
+  KeyW: { x: 0, y: 0, z: -1 },
+  ArrowDown: { x: 0, y: 0, z: 1 },
+  KeyS: { x: 0, y: 0, z: 1 },
+  ArrowLeft: { x: -1, y: 0, z: 0 },
+  KeyA: { x: -1, y: 0, z: 0 },
+  ArrowRight: { x: 1, y: 0, z: 0 },
+  KeyD: { x: 1, y: 0, z: 0 },
+  KeyQ: { x: 0, y: 1, z: 0 },
+  KeyE: { x: 0, y: -1, z: 0 },
+  up: { x: 0, y: 0, z: -1 },
+  down: { x: 0, y: 0, z: 1 },
+  left: { x: -1, y: 0, z: 0 },
+  right: { x: 1, y: 0, z: 0 },
+  rise: { x: 0, y: 1, z: 0 },
+  fall: { x: 0, y: -1, z: 0 },
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -102,6 +108,7 @@ class NeonSerpent {
       combo: $("combo"),
       lengthStat: $("lengthStat"),
       speedStat: $("speedStat"),
+      altStat: $("altStat"),
       signalBars: Array.from(document.querySelectorAll("#signalBars i")),
       toast: $("toast"),
       flash: $("flash"),
@@ -157,7 +164,7 @@ class NeonSerpent {
     this.lastTickMs = this.engine.tickMs;
     this.baseFov = 44;
     this.frameDistance = 25;
-    this.lookTarget = new THREE.Vector3(0, -0.15, 0);
+    this.lookTarget = new THREE.Vector3(0, 0, 0);
     this.pointerStart = null;
     this.debugFreeze = false;
     this.loop = this.loop.bind(this);
@@ -208,7 +215,7 @@ class NeonSerpent {
       pause: () => this.pauseGame(),
       resume: () => this.resumeGame(),
       menu: () => this.enterMenu(),
-      move: (x, z) => this.handleDirection(x, z),
+      move: (x, y, z) => this.handleDirection({ x, y, z }),
       tick: () => this.forceTick(),
       setDifficulty: (key) => this.setDifficulty(key),
       freeze: (value) => {
@@ -257,10 +264,10 @@ class NeonSerpent {
   }
 
   setupLights() {
-    const hemi = new THREE.HemisphereLight(0x7dffd0, 0x030604, 0.72);
+    const hemi = new THREE.HemisphereLight(0x7dffd0, 0x030604, 0.9);
     this.scene.add(hemi);
 
-    const key = new THREE.DirectionalLight(0xfff1d2, 1.9);
+    const key = new THREE.DirectionalLight(0xfff1d2, 1.7);
     key.position.set(8.5, 22, 11);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
@@ -349,44 +356,20 @@ class NeonSerpent {
   }
 
   setupBoard() {
-    const board = new THREE.Group();
-    this.board = board;
-    this.scene.add(board);
+    const half = GRID_SIZE / 2;
+    const arena = new THREE.Group();
+    this.board = arena;
+    this.scene.add(arena);
 
-    const width = GRID_SIZE + 0.9;
-    const slabMaterial = new THREE.MeshStandardMaterial({
-      color: 0x07130d,
-      roughness: 0.68,
-      metalness: 0.38,
-    });
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(width, 0.9, width), slabMaterial);
-    slab.position.y = -0.45;
-    slab.receiveShadow = true;
-    board.add(slab);
-
-    const surface = new THREE.Mesh(
-      new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE),
-      new THREE.MeshStandardMaterial({
-        color: 0x0a1c14,
-        roughness: 0.5,
-        metalness: 0.5,
-      })
-    );
-    surface.rotation.x = -Math.PI / 2;
-    surface.position.y = 0.002;
-    surface.receiveShadow = true;
-    board.add(surface);
-
-    this.gridUniforms = {
-      uColor: { value: new THREE.Color(0x58ffc9) },
-      uTime: { value: 0 },
-      uGrid: { value: GRID_SIZE },
-      uOpacity: { value: 0.34 },
-    };
-    const grid = new THREE.Mesh(
-      new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE),
+    this.gridTimeUniform = { value: 0 };
+    const makeGridMaterial = (opacity, color) =>
       new THREE.ShaderMaterial({
-        uniforms: this.gridUniforms,
+        uniforms: {
+          uColor: { value: new THREE.Color(color) },
+          uTime: this.gridTimeUniform,
+          uGrid: { value: GRID_SIZE },
+          uOpacity: { value: opacity },
+        },
         vertexShader: [
           "varying vec2 vUv;",
           "void main() {",
@@ -398,44 +381,91 @@ class NeonSerpent {
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+      });
+
+    const faceGeometry = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE);
+
+    const floorBase = new THREE.Mesh(
+      faceGeometry,
+      new THREE.MeshStandardMaterial({
+        color: 0x081a12,
+        roughness: 0.55,
+        metalness: 0.4,
       })
     );
-    grid.rotation.x = -Math.PI / 2;
-    grid.position.y = 0.012;
-    board.add(grid);
+    floorBase.rotation.x = -Math.PI / 2;
+    floorBase.position.y = ARENA_FLOOR - 0.002;
+    floorBase.receiveShadow = true;
+    arena.add(floorBase);
 
-    this.railMaterials = [];
-    const railLong = new THREE.BoxGeometry(width + 0.18, 0.055, 0.055);
-    const railSide = new THREE.BoxGeometry(0.055, 0.055, width + 0.18);
-    const railXMaterial = new THREE.MeshBasicMaterial({ color: LIME, toneMapped: false });
-    const railZMaterial = new THREE.MeshBasicMaterial({ color: MINT, toneMapped: false });
-    this.railMaterials.push(railXMaterial, railZMaterial);
+    const floorGrid = new THREE.Mesh(faceGeometry, makeGridMaterial(0.44, 0x58ffc9));
+    floorGrid.rotation.x = -Math.PI / 2;
+    floorGrid.position.y = ARENA_FLOOR + 0.018;
+    arena.add(floorGrid);
 
-    const offset = width / 2;
-    for (const z of [-offset, offset]) {
-      const rail = new THREE.Mesh(railLong, railXMaterial);
-      rail.position.set(0, 0.075, z);
-      board.add(rail);
+    const backGrid = new THREE.Mesh(faceGeometry, makeGridMaterial(0.16, 0x58ffc9));
+    backGrid.position.set(0, 0, -half);
+    arena.add(backGrid);
+
+    const leftGrid = new THREE.Mesh(faceGeometry, makeGridMaterial(0.065, 0x58ffc9));
+    leftGrid.rotation.y = Math.PI / 2;
+    leftGrid.position.set(-half, 0, 0);
+    arena.add(leftGrid);
+
+    const rightGrid = new THREE.Mesh(faceGeometry, makeGridMaterial(0.045, 0x58ffc9));
+    rightGrid.rotation.y = -Math.PI / 2;
+    rightGrid.position.set(half, 0, 0);
+    arena.add(rightGrid);
+
+    const railMain = new THREE.MeshBasicMaterial({ color: LIME, toneMapped: false });
+    const railAccent = new THREE.MeshBasicMaterial({ color: MINT, toneMapped: false });
+    this.railMaterials = [railMain, railAccent];
+
+    const thickness = 0.045;
+    const addBar = (geometry, x, y, z, material) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      arena.add(mesh);
+      return mesh;
+    };
+
+    const edgeX = new THREE.BoxGeometry(GRID_SIZE + thickness, thickness, thickness);
+    const edgeY = new THREE.BoxGeometry(thickness, GRID_SIZE + thickness, thickness);
+    const edgeZ = new THREE.BoxGeometry(thickness, thickness, GRID_SIZE + thickness);
+
+    for (const y of [-half, half]) {
+      for (const z of [-half, half]) {
+        // Leave the near-top edge open so gameplay is never crossed by a bright rail.
+        if (y > 0 && z > 0) continue;
+        addBar(edgeX, 0, y, z, y > 0 ? railMain : railAccent);
+      }
     }
-    for (const x of [-offset, offset]) {
-      const rail = new THREE.Mesh(railSide, railZMaterial);
-      rail.position.set(x, 0.075, 0);
-      board.add(rail);
+    for (const x of [-half, half]) {
+      for (const z of [-half, half]) {
+        addBar(edgeY, x, 0, z, railAccent);
+      }
+    }
+    for (const x of [-half, half]) {
+      for (const y of [-half, half]) {
+        addBar(edgeZ, x, y, 0, y > 0 ? railMain : railAccent);
+      }
     }
 
     const cornerMaterial = new THREE.MeshBasicMaterial({ color: 0xf3ffcf, toneMapped: false });
     this.cornerMaterial = cornerMaterial;
-    const cornerGeometry = new THREE.BoxGeometry(0.22, 0.16, 0.22);
-    for (const x of [-offset, offset]) {
-      for (const z of [-offset, offset]) {
-        const corner = new THREE.Mesh(cornerGeometry, cornerMaterial);
-        corner.position.set(x, 0.1, z);
-        board.add(corner);
+    const cornerGeometry = new THREE.BoxGeometry(0.17, 0.17, 0.17);
+    for (const x of [-half, half]) {
+      for (const y of [-half, half]) {
+        for (const z of [-half, half]) {
+          const corner = new THREE.Mesh(cornerGeometry, cornerMaterial);
+          corner.position.set(x, y, z);
+          arena.add(corner);
+        }
       }
     }
 
     const underGlow = new THREE.Mesh(
-      new THREE.PlaneGeometry(34, 34),
+      new THREE.PlaneGeometry(32, 32),
       new THREE.MeshBasicMaterial({
         map: this.glowTexture,
         color: 0x1affae,
@@ -448,7 +478,7 @@ class NeonSerpent {
       })
     );
     underGlow.rotation.x = -Math.PI / 2;
-    underGlow.position.y = -2.1;
+    underGlow.position.y = ARENA_FLOOR - 1.4;
     this.scene.add(underGlow);
     this.underGlow = underGlow;
 
@@ -458,29 +488,29 @@ class NeonSerpent {
       metalness: 0.28,
     });
     const platform = new THREE.Mesh(
-      new THREE.CylinderGeometry(12.5, 13.7, 1.15, 96),
+      new THREE.CylinderGeometry(8.0, 9.2, 1.15, 96),
       platformMaterial
     );
-    platform.position.y = -1.65;
+    platform.position.y = ARENA_FLOOR - 0.85;
     platform.receiveShadow = true;
     this.scene.add(platform);
 
     const platformLip = new THREE.Mesh(
-      new THREE.CylinderGeometry(12.9, 12.9, 0.12, 96),
+      new THREE.CylinderGeometry(8.05, 8.05, 0.1, 96),
       new THREE.MeshStandardMaterial({
         color: 0x0b2418,
         roughness: 0.42,
         metalness: 0.55,
       })
     );
-    platformLip.position.y = -1.05;
+    platformLip.position.y = ARENA_FLOOR - 0.27;
     this.scene.add(platformLip);
 
     this.boardRings = [];
     const ringData = [
-      [11.3, 0.55, 0.018, -1.15],
-      [12.9, 0.32, 0.014, -1.35],
-      [14.2, 0.16, 0.01, -1.7],
+      [7.5, 0.55, 0.018, ARENA_FLOOR - 0.5],
+      [8.9, 0.32, 0.014, ARENA_FLOOR - 0.8],
+      [10.1, 0.16, 0.01, ARENA_FLOOR - 1.2],
     ];
     for (const [radius, opacity, tube, y] of ringData) {
       const ring = new THREE.Mesh(
@@ -536,7 +566,7 @@ class NeonSerpent {
       button.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         const direction = DIRECTION_KEYS[button.dataset.dir];
-        if (direction) this.handleDirection(direction.x, direction.z);
+        if (direction) this.handleDirection(direction);
       });
     }
 
@@ -570,9 +600,9 @@ class NeonSerpent {
       const dy = event.clientY - start.y;
       if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
       if (Math.abs(dx) > Math.abs(dy)) {
-        this.handleDirection(dx > 0 ? 1 : -1, 0);
+        this.handleDirection({ x: dx > 0 ? 1 : -1, y: 0, z: 0 });
       } else {
-        this.handleDirection(0, dy > 0 ? 1 : -1);
+        this.handleDirection({ x: 0, y: 0, z: dy > 0 ? 1 : -1 });
       }
     };
     this.dom.canvas.addEventListener("pointerup", finishPointer);
@@ -629,6 +659,10 @@ class NeonSerpent {
     this.dom.best.textContent = padded(this.best);
     this.dom.lengthStat.textContent = padded(engine.length, 2);
     this.dom.speedStat.innerHTML = engine.speedMultiplier.toFixed(1) + "<small>×</small>";
+    if (this.dom.altStat) {
+      this.dom.altStat.innerHTML =
+        String(engine.head.y + 1).padStart(2, "0") + "<small>/" + GRID_SIZE + "</small>";
+    }
     const activeBars = clamp(1 + Math.floor(engine.eaten / 3), 1, 5);
     this.dom.signalBars.forEach((bar, index) => {
       bar.classList.toggle("is-on", index < activeBars);
@@ -702,13 +736,13 @@ class NeonSerpent {
     this.dom.app.dataset.state = "menu";
     this.dom.screenKicker.textContent = "ARCADE PROTOCOL / 001";
     this.showScreen("menu");
-    this.snakeView.revive();
+    this.snakeView.revive({ x: 0, y: 0, z: 1 });
     this.snakeView.update({
       snake: DEMO_SNAKE,
       prevSnake: DEMO_SNAKE,
       progress: 1,
       time: this.time,
-      direction: { x: 1, z: 0 },
+      direction: { x: 0, y: 0, z: 1 },
       dt: 0.016,
       deathT: 0,
     });
@@ -748,7 +782,7 @@ class NeonSerpent {
     this.snakeView.revive();
     this.foodView.setCell(this.engine.food, performance.now(), false);
     this.foodView.setVisible(true);
-    this.nextTickAt = performance.now() + 780;
+    this.nextTickAt = performance.now() + 1500;
     this.progress = 0;
     this.deathT = 0;
     this.deathStartedAt = 0;
@@ -764,7 +798,7 @@ class NeonSerpent {
     this.debugFreeze = false;
     this.syncHud();
     this.flash(false);
-    this.showToast("SIGNAL LOCKED // 出发", 1050);
+    this.showToast("SIGNAL LOCKED // 方向键移动 · Q/E 升降", 1600);
     if (document.activeElement && typeof document.activeElement.blur === "function") {
       document.activeElement.blur();
     }
@@ -793,14 +827,16 @@ class NeonSerpent {
     this.audio.resume();
   }
 
-  handleDirection(x, z) {
+  handleDirection(direction) {
+    if (!direction) return;
+    const { x = 0, y = 0, z = 0 } = direction;
     if (this.appState === "menu" || this.appState === "gameover") {
       this.startGame();
-      if (this.engine.setDirection(x, z)) this.audio.turn();
+      if (this.engine.setDirection(x, y, z)) this.audio.turn();
       return;
     }
     if (this.appState === "playing") {
-      if (this.engine.setDirection(x, z)) this.audio.turn();
+      if (this.engine.setDirection(x, y, z)) this.audio.turn();
       return;
     }
     if (this.appState === "paused") this.resumeGame();
@@ -835,7 +871,7 @@ class NeonSerpent {
 
     if (direction) {
       event.preventDefault();
-      this.handleDirection(direction.x, direction.z);
+      this.handleDirection(direction);
       return;
     }
 
@@ -876,8 +912,12 @@ class NeonSerpent {
      Game events
      ============================================================ */
 
-  cellToWorld(cell, y = 0.5) {
-    return new THREE.Vector3(cell.x - 8, y, cell.z - 8);
+  cellToWorld(cell, yOffset = 0) {
+    return new THREE.Vector3(
+      cell.x - CELL_CENTER,
+      cell.y - CELL_CENTER + yOffset,
+      cell.z - CELL_CENTER
+    );
   }
 
   handleEngineEvent(event) {
@@ -961,8 +1001,8 @@ class NeonSerpent {
     }
     const cause = won ? "win" : event.cause || "wall";
     const reasons = {
-      wall: "撞上了边界。矩阵的尽头不欢迎你。",
-      self: "咬到了自己的身体。再贪心也要留条后路。",
+      wall: "撞上了立体矩阵的边界。",
+      self: "咬到了自己的身体。在三维空间里也要留后路。",
       win: "整张矩阵都亮了起来。你把它吃干净了。",
     };
     this.gameOverData = {
@@ -1071,7 +1111,7 @@ class NeonSerpent {
   }
 
   computeFrameDistance() {
-    const halfSize = 10.35;
+    const halfSize = 9.2;
     const vTan = Math.tan((this.baseFov * Math.PI) / 360);
     const hTan = vTan * this.camera.aspect;
     return Math.max(halfSize / vTan, halfSize / Math.max(0.001, hTan));
@@ -1081,16 +1121,17 @@ class NeonSerpent {
     const menuLike =
       this.appState === "menu" || this.appState === "boot" || this.appState === "gameover";
     const idle = menuLike && !this.reducedMotion;
-    const az = idle ? Math.sin(this.time * 0.09) * 0.105 : 0;
-    const elevation = 0.84 + (idle ? Math.sin(this.time * 0.15) * 0.012 : 0);
+    const az = 0.3 + (idle ? Math.sin(this.time * 0.09) * 0.035 : 0);
+    const elevation = 0.68 + (idle ? Math.sin(this.time * 0.15) * 0.01 : 0);
     const distance =
       this.frameDistance * (idle ? 1 + Math.sin(this.time * 0.17) * 0.006 : 1);
 
     const target = new THREE.Vector3(0, 0, 0);
     if (this.appState === "playing" || this.appState === "paused" || this.appState === "dead") {
-      const head = this.engine.snake[0] || { x: 8, z: 8 };
-      target.x = (head.x - 8) * 0.045;
-      target.z = (head.z - 8) * 0.045;
+      const head = this.engine.snake[0] || { x: 4, y: 4, z: 4 };
+      target.x = (head.x - CELL_CENTER) * 0.035;
+      target.y = (head.y - CELL_CENTER) * 0.035;
+      target.z = (head.z - CELL_CENTER) * 0.035;
     }
 
     const dir = new THREE.Vector3(
@@ -1099,11 +1140,12 @@ class NeonSerpent {
       Math.cos(az) * Math.cos(elevation)
     ).multiplyScalar(distance);
     dir.x += target.x;
+    dir.y += target.y;
     dir.z += target.z;
 
     const follow = immediate ? 1 : 1 - Math.exp(-2.8 * Math.max(dt, 0.001));
     this.camera.position.lerp(dir, follow);
-    const lookGoal = new THREE.Vector3(target.x * 0.45, -0.15, target.z * 0.45);
+    const lookGoal = new THREE.Vector3(target.x * 0.5, target.y * 0.5, target.z * 0.5);
     this.lookTarget.lerp(lookGoal, immediate ? 1 : 1 - Math.exp(-4 * Math.max(dt, 0.001)));
 
     const fov = this.baseFov + this.fovPulse * 1.4;
@@ -1175,7 +1217,7 @@ class NeonSerpent {
   }
 
   updateWorld(dt, now) {
-    this.gridUniforms.uTime.value = this.time;
+    this.gridTimeUniform.value = this.time;
     this.underGlow.material.opacity = 0.3 + Math.sin(this.time * 0.8) * 0.045;
     for (let i = 0; i < this.boardRings.length; i += 1) {
       this.boardRings[i].rotation.z += dt * (0.045 + i * 0.025);
@@ -1204,7 +1246,7 @@ class NeonSerpent {
         prevSnake: DEMO_SNAKE,
         progress: 1,
         time: this.time,
-        direction: { x: 1, z: 0 },
+        direction: { x: 0, y: 0, z: 1 },
         dt,
         headPulse: 0.15 + Math.sin(this.time * 1.3) * 0.1,
         deathT: 0,

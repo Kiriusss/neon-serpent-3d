@@ -561,7 +561,7 @@ kbd {
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 10px;
   padding: 8px 14px;
   transform: translateX(-50%);
   border: 1px solid rgba(224, 255, 219, 0.09);
@@ -1128,7 +1128,7 @@ kbd {
   bottom: max(24px, env(safe-area-inset-bottom));
   z-index: 16;
   display: none;
-  grid-template-columns: repeat(3, 48px);
+  grid-template-columns: repeat(4, 48px);
   grid-template-rows: repeat(3, 48px);
   gap: 4px;
   opacity: 0;
@@ -1172,6 +1172,25 @@ kbd {
 .touch-left { grid-column: 1; grid-row: 2; }
 .touch-right { grid-column: 3; grid-row: 2; }
 .touch-down { grid-column: 2; grid-row: 3; }
+.touch-rise { grid-column: 4; grid-row: 1; }
+.touch-fall { grid-column: 4; grid-row: 3; }
+
+.touch-axis {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-color: rgba(201, 255, 77, 0.26);
+}
+
+.touch-axis svg { width: 18px; height: 18px; }
+
+.touch-axis small {
+  font-family: var(--mono);
+  font-size: 6px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--lime);
+}
 
 .touch-core {
   grid-column: 2;

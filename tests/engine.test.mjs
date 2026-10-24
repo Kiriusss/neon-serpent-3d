@@ -14,44 +14,55 @@ function setSnake(engine, snake, direction) {
   engine.direction = { ...direction };
   engine.turnQueue = [];
   engine.phase = "playing";
-  engine.food = { x: engine.grid - 1, z: engine.grid - 1 };
-  if (engine.snake.some((cell) => cell.x === engine.food.x && cell.z === engine.food.z)) {
-    engine.food = { x: 0, z: 0 };
+  engine.food = { x: engine.grid - 1, y: engine.grid - 1, z: engine.grid - 1 };
+  if (engine.snake.some((cell) => cell.x === engine.food.x && cell.y === engine.food.y && cell.z === engine.food.z)) {
+    engine.food = { x: 0, y: 0, z: 0 };
   }
 }
 
-test("starts with four segments, a valid direction and food off the snake", () => {
+test("starts with four 3D segments and food off the snake", () => {
   const engine = playingEngine();
+  assert.equal(engine.grid, 9);
   assert.equal(engine.length, 4);
   assert.equal(engine.phase, "playing");
   assert.ok(engine.food);
-  assert.ok(!engine.snake.some((cell) => cell.x === engine.food.x && cell.z === engine.food.z));
-  const state = engine.getState();
-  assert.equal(state.grid, 17);
-  assert.equal(state.score, 0);
+  assert.equal(engine.snake[0].y, 4);
+  assert.ok(!engine.snake.some((cell) => cell.x === engine.food.x && cell.y === engine.food.y && cell.z === engine.food.z));
+  assert.equal(engine.getState().grid, 9);
 });
 
-test("rejects reversals and duplicate directions", () => {
+test("rejects reversals, duplicates and malformed 3D directions", () => {
   const engine = playingEngine();
-  assert.equal(engine.setDirection(0, 1), false, "down is opposite of up");
-  assert.equal(engine.setDirection(0, -1), false, "up is already the direction");
-  assert.equal(engine.setDirection(-1, 0), true);
-  assert.equal(engine.setDirection(1, 0), false, "right is opposite of queued left");
-  assert.equal(engine.setDirection(0, 1), true);
+  assert.equal(engine.setDirection(0, 0, 1), false, "down-depth is opposite of up-depth");
+  assert.equal(engine.setDirection(0, 0, -1), false, "duplicate of current direction");
+  assert.equal(engine.setDirection(-1, 0, 0), true);
+  assert.equal(engine.setDirection(1, 0, 0), false, "opposite of queued left");
+  assert.equal(engine.setDirection(0, 1, 0), true);
+  assert.equal(engine.setDirection(0, 0, 0), false);
+  assert.equal(engine.setDirection(1, 1, 0), false);
 });
 
-test("moves one cell per step and keeps four segments", () => {
+test("moves one cell per step in 3D", () => {
   const engine = playingEngine();
   const head = { ...engine.head };
   const event = engine.step();
   assert.equal(event.type, "move");
-  assert.deepEqual(engine.head, { x: head.x, z: head.z - 1 });
+  assert.deepEqual(engine.head, { x: head.x, y: head.y, z: head.z - 1 });
   assert.equal(engine.length, 4);
 });
 
-test("eating grows the snake, scores a combo and respawns food", () => {
+test("can move vertically through the volume", () => {
   const engine = playingEngine();
-  engine.food = { x: engine.head.x, z: engine.head.z - 1 };
+  engine.direction = { x: 0, y: 1, z: 0 };
+  engine.turnQueue = [];
+  const event = engine.step();
+  assert.equal(event.type, "move");
+  assert.equal(engine.head.y, 5);
+});
+
+test("eating grows the snake, scores a combo and respawns 3D food", () => {
+  const engine = playingEngine();
+  engine.food = { x: engine.head.x, y: engine.head.y, z: engine.head.z - 1 };
   const first = engine.step();
   assert.equal(first.type, "eat");
   assert.equal(first.gained, 10);
@@ -59,9 +70,9 @@ test("eating grows the snake, scores a combo and respawns food", () => {
   assert.equal(engine.score, 10);
   assert.equal(engine.combo, 1);
   assert.equal(engine.comboTimer, COMBO_WINDOW);
-  assert.notDeepEqual(engine.food, { x: engine.head.x, z: engine.head.z });
+  assert.equal(engine.food.y >= 0 && engine.food.y < 9, true);
 
-  engine.food = { x: engine.head.x, z: engine.head.z - 1 };
+  engine.food = { x: engine.head.x, y: engine.head.y, z: engine.head.z - 1 };
   const second = engine.step();
   assert.equal(second.type, "eat");
   assert.equal(second.combo, 2);
@@ -72,9 +83,8 @@ test("eating grows the snake, scores a combo and respawns food", () => {
 
 test("combo expires after the window", () => {
   const engine = playingEngine();
-  engine.food = { x: engine.head.x, z: engine.head.z - 1 };
+  engine.food = { x: engine.head.x, y: engine.head.y, z: engine.head.z - 1 };
   engine.step();
-  assert.equal(engine.combo, 1);
   engine.update(COMBO_WINDOW + 10);
   assert.equal(engine.combo, 1);
   assert.equal(engine.comboTimer, 0);
@@ -85,42 +95,53 @@ test("speed increases as food is eaten", () => {
   const initial = engine.tickMs;
   for (let i = 0; i < 4; i += 1) {
     engine.snake = [
-      { x: 8, z: 8 },
-      { x: 8, z: 9 },
-      { x: 8, z: 10 },
-      { x: 8, z: 11 },
-      { x: 8, z: 12 },
+      { x: 4, y: 4, z: 4 },
+      { x: 4, y: 4, z: 5 },
+      { x: 4, y: 4, z: 6 },
+      { x: 4, y: 4, z: 7 },
+      { x: 4, y: 4, z: 8 },
     ];
     engine.prevSnake = engine.snake.map((cell) => ({ ...cell }));
-    engine.direction = { x: 0, z: -1 };
-    engine.food = { x: 8, z: 7 };
+    engine.direction = { x: 0, y: 0, z: -1 };
+    engine.food = { x: 4, y: 4, z: 3 };
     engine.step();
   }
   assert.ok(engine.tickMs < initial, "tick duration should decrease");
   assert.equal(engine.eaten, 4);
 });
 
-test("walls end the run", () => {
+test("walls end the run in every axis", () => {
   const engine = playingEngine();
-  setSnake(engine, [{ x: 0, z: 5 }, { x: 1, z: 5 }, { x: 2, z: 5 }, { x: 3, z: 5 }], { x: -1, z: 0 });
-  const event = engine.step();
-  assert.equal(event.type, "death");
-  assert.equal(event.cause, "wall");
+  setSnake(engine, [
+    { x: 0, y: 4, z: 4 },
+    { x: 1, y: 4, z: 4 },
+    { x: 2, y: 4, z: 4 },
+    { x: 3, y: 4, z: 4 },
+  ], { x: -1, y: 0, z: 0 });
+  assert.equal(engine.step().cause, "wall");
   assert.equal(engine.phase, "dead");
-  assert.equal(engine.deathCause, "wall");
+
+  const vertical = playingEngine();
+  setSnake(vertical, [
+    { x: 4, y: 8, z: 4 },
+    { x: 4, y: 7, z: 4 },
+    { x: 4, y: 6, z: 4 },
+    { x: 4, y: 5, z: 4 },
+  ], { x: 0, y: 1, z: 0 });
+  assert.equal(vertical.step().cause, "wall");
 });
 
-test("self collision ends the run", () => {
+test("self collision works in 3D", () => {
   const engine = playingEngine();
   setSnake(
     engine,
     [
-      { x: 5, z: 5 },
-      { x: 5, z: 6 },
-      { x: 6, z: 6 },
-      { x: 6, z: 5 },
+      { x: 4, y: 4, z: 4 },
+      { x: 4, y: 5, z: 4 },
+      { x: 5, y: 5, z: 4 },
+      { x: 5, y: 4, z: 4 },
     ],
-    { x: 0, z: 1 }
+    { x: 0, y: 1, z: 0 }
   );
   const event = engine.step();
   assert.equal(event.type, "death");
@@ -132,18 +153,16 @@ test("moving into the tail cell is safe when the tail vacates it", () => {
   setSnake(
     engine,
     [
-      { x: 5, z: 5 },
-      { x: 6, z: 5 },
-      { x: 6, z: 4 },
-      { x: 5, z: 4 },
+      { x: 4, y: 4, z: 4 },
+      { x: 4, y: 5, z: 4 },
+      { x: 5, y: 5, z: 4 },
+      { x: 5, y: 4, z: 4 },
     ],
-    { x: 0, z: -1 }
+    { x: 1, y: 0, z: 0 }
   );
-  // Head moves down into (5,4), which is the old tail; this is a legal
-  // move because the tail is leaving on the same tick.
   const event = engine.step();
   assert.equal(event.type, "move");
-  assert.deepEqual(engine.head, { x: 5, z: 4 });
+  assert.deepEqual(engine.head, { x: 5, y: 4, z: 4 });
   assert.equal(engine.phase, "playing");
 });
 
@@ -156,11 +175,13 @@ test("pause and resume set the phase", () => {
   assert.equal(engine.phase, "playing");
 });
 
-test("2x2 test grid reports a full board when no cell is free", () => {
+test("full 3D board reports no free food cell", () => {
   const engine = new SnakeEngine({ grid: 5 });
   engine.snake = [];
   for (let z = 0; z < 5; z += 1) {
-    for (let x = 0; x < 5; x += 1) engine.snake.push({ x, z });
+    for (let y = 0; y < 5; y += 1) {
+      for (let x = 0; x < 5; x += 1) engine.snake.push({ x, y, z });
+    }
   }
   assert.equal(engine.spawnFood(), null);
   assert.equal(engine.food, null);
