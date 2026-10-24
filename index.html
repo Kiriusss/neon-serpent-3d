@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#060a08">
+  <meta name="description" content="NEON SERPENT —— 一个可以直接在浏览器里玩的 3D 霓虹贪吃蛇。吞噬能量，保持移动，别撞墙，也别咬到自己。">
+  <title>NEON SERPENT — 3D 贪吃蛇</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080d09'/%3E%3Cpath d='M7 7h18v7H14v4h11v7H7v-7h11v-4H7z' fill='%23c9ff4d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./css/style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <main id="app" data-state="boot" aria-label="NEON SERPENT 3D 贪吃蛇">
+    <div class="backdrop" aria-hidden="true"></div>
+    <canvas id="scene" aria-label="3D 游戏场景"></canvas>
+    <div class="ambient-grain" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div id="flash" class="flash" aria-hidden="true"></div>
+
+    <!-- HUD -->
+    <header class="topbar hud">
+      <a class="brand" href="./" aria-label="NEON SERPENT 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="presentation">
+            <path d="M7 7h18v7H14v4h11v7H7v-7h11v-4H7z" />
+            <circle cx="21.5" cy="10.5" r="1.15" class="brand-eye" />
+          </svg>
+        </span>
+        <span class="brand-type">
+          <span class="brand-name">NEON<span class="brand-slash">/</span>SERPENT</span>
+          <span class="brand-sub">THREE DIMENSIONAL ARCADE</span>
+        </span>
+        <span class="brand-chip">3D</span>
+      </a>
+
+      <div class="score-cluster">
+        <div class="score-main">
+          <span class="micro">SCORE</span>
+          <span id="score" class="score" aria-live="polite" aria-atomic="true">0000</span>
+        </div>
+        <span id="combo" class="combo" data-active="false">×1</span>
+      </div>
+
+      <div class="top-actions">
+        <div class="best-chip">
+          <span class="micro">BEST</span>
+          <b id="best">0000</b>
+        </div>
+        <button id="soundBtn" class="icon-btn" type="button" aria-label="关闭声音" aria-pressed="true" title="声音 (M)">
+          <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"/>
+            <path d="M15 8.5a5 5 0 0 1 0 7M18 6a9 9 0 0 1 0 12"/>
+          </svg>
+          <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"/>
+            <path d="m15 10 5 5m0-5-5 5"/>
+          </svg>
+        </button>
+        <button id="pauseBtn" class="icon-btn pause-only" type="button" aria-label="暂停游戏" title="暂停 (空格)">
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <aside class="edge-label" aria-hidden="true">
+      <span>NEON MATRIX</span>
+      <i></i>
+      <span>EST. 2026</span>
+    </aside>
+
+    <aside class="stats-rail hud" aria-label="游戏状态">
+      <div class="stat">
+        <span class="micro">LENGTH</span>
+        <b id="lengthStat">04</b>
+      </div>
+      <div class="rail-rule"></div>
+      <div class="stat">
+        <span class="micro">VELOCITY</span>
+        <b id="speedStat">1.0<small>×</small></b>
+      </div>
+      <div class="rail-rule"></div>
+      <div class="signal">
+        <span class="micro">SIGNAL</span>
+        <div id="signalBars" class="signal-bars" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+    </aside>
+
+    <div class="hint-bar hud" aria-hidden="true">
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> 移动</span>
+      <i></i>
+      <span><kbd>SPACE</kbd> 暂停</span>
+      <i></i>
+      <span><kbd>R</kbd> 重开</span>
+      <i></i>
+      <span><kbd>M</kbd> 声音</span>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="touchPad" class="touch-pad" aria-label="触屏方向键">
+      <button class="touch-btn touch-up" type="button" data-dir="up" aria-label="向上">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg>
+      </button>
+      <button class="touch-btn touch-left" type="button" data-dir="left" aria-label="向左">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+      </button>
+      <span class="touch-core" aria-hidden="true"></span>
+      <button class="touch-btn touch-right" type="button" data-dir="right" aria-label="向右">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
+      </button>
+      <button class="touch-btn touch-down" type="button" data-dir="down" aria-label="向下">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <!-- MENU / PAUSE / GAME OVER -->
+    <section id="screen" class="screen" data-mode="menu" aria-label="游戏菜单">
+      <div class="screen-grid" aria-hidden="true"></div>
+      <div class="screen-frame">
+        <div class="screen-meta">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="screenKicker">ARCADE PROTOCOL / 001</span>
+          <span class="meta-line" aria-hidden="true"></span>
+          <span>WEBGL · 17×17</span>
+        </div>
+
+        <div id="startPanel" class="panel">
+          <h1 class="display-title"><span>NEON</span><span class="title-accent">SERPENT</span></h1>
+          <p class="lead">钻进霓虹矩阵，吞噬能量。<br>每吃一口，身体更长，速度更快。</p>
+
+          <div class="difficulty-wrap">
+            <span class="micro">选择节奏 / PACE</span>
+            <div class="difficulty" role="group" aria-label="选择游戏难度">
+              <button type="button" data-difficulty="relaxed" aria-pressed="false"><span>轻松</span><small>RELAXED</small></button>
+              <button type="button" data-difficulty="classic" aria-pressed="true" class="is-selected"><span>经典</span><small>CLASSIC</small></button>
+              <button type="button" data-difficulty="frenzy" aria-pressed="false"><span>极速</span><small>FRENZY</small></button>
+            </div>
+            <span id="paceNote" class="pace-note">刚刚好的挑战</span>
+          </div>
+
+          <button id="startBtn" class="cta" type="button">
+            <span class="cta-glow" aria-hidden="true"></span>
+            <span>开始游戏</span>
+            <kbd>SPACE</kbd>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>
+          </button>
+
+          <div class="quick-guide">
+            <span><kbd>WASD</kbd> / <kbd>方向键</kbd> 控制方向</span>
+            <span>撞墙或咬到自己即结束</span>
+          </div>
+        </div>
+
+        <div id="overPanel" class="panel panel-result" hidden>
+          <div id="overKicker" class="result-kicker">SIGNAL LOST</div>
+          <h2 id="overTitle" class="result-title">GAME<br><span>OVER</span></h2>
+          <p id="overReason" class="lead">撞上了边界。</p>
+
+          <div class="result-grid">
+            <div><span class="micro">SCORE</span><b id="finalScore">0000</b></div>
+            <div><span class="micro">BEST</span><b id="finalBest">0000</b></div>
+            <div><span class="micro">LENGTH</span><b id="finalLength">04</b></div>
+          </div>
+          <div id="newRecord" class="new-record" hidden><i></i> NEW HIGH SCORE <i></i></div>
+
+          <div class="button-row">
+            <button id="retryBtn" class="cta cta-small" type="button">
+              <span>再来一局</span>
+              <kbd>SPACE</kbd>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>
+            </button>
+            <button id="menuBtn" class="ghost-btn" type="button">返回主菜单</button>
+          </div>
+          <p class="result-tip">TIP — 提前一个身位转弯，给自己留点余地。</p>
+        </div>
+
+        <div id="pausePanel" class="panel panel-pause" hidden>
+          <div class="result-kicker">PAUSED / 已暂停</div>
+          <h2 class="result-title pause-title">HOLD<br><span>STILL</span></h2>
+          <p class="lead">喘口气。矩阵会等你。</p>
+          <div class="button-row pause-buttons">
+            <button id="resumeBtn" class="cta cta-small" type="button">
+              <span>继续游戏</span>
+              <kbd>SPACE</kbd>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>
+            </button>
+            <button id="pauseRestartBtn" class="ghost-btn" type="button">重新开始</button>
+            <button id="pauseMenuBtn" class="ghost-btn" type="button">主菜单</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-side" aria-hidden="true">
+        <span>01</span>
+        <span class="side-rule"></span>
+        <span>CONSUME<br>ADAPT<br>SURVIVE</span>
+      </div>
+
+      <footer class="screen-footer">
+        <span>© 2026 NEON SERPENT</span>
+        <span class="footer-dot"></span>
+        <span>BUILT FOR THE WEB</span>
+        <span class="footer-wide">THREE.JS / WEBGL</span>
+      </footer>
+    </section>
+
+    <div id="boot" class="boot" role="status" aria-live="polite">
+      <div class="boot-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M7 7h18v7H14v4h11v7H7v-7h11v-4H7z" /></svg>
+      </div>
+      <div class="boot-title">NEON SERPENT</div>
+      <div class="boot-track"><i></i></div>
+      <p id="bootHint" class="boot-hint" hidden>加载时间有点久。请双击 <b>start.cmd</b>，通过本地服务器打开游戏。</p>
+    </div>
+
+    <div id="fatal" class="fatal" hidden>
+      <span class="micro">WEBGL OFFLINE</span>
+      <h2>这台设备暂时无法点亮矩阵。</h2>
+      <p>请使用最新版 Chrome / Edge，并确认浏览器已开启硬件加速后重新打开页面。</p>
+    </div>
+
+    <noscript>
+      <div class="fatal noscript"><h2>需要启用 JavaScript</h2><p>NEON SERPENT 是一个实时 3D 游戏，请在浏览器设置中允许 JavaScript 后刷新页面。</p></div>
+    </noscript>
+  </main>
+
+  <script>
+    (function () {
+      var hint = document.getElementById('bootHint');
+      if (window.location.protocol === 'file:' && hint) {
+        hint.hidden = false;
+        hint.textContent = '当前是直接打开的文件。ES Module 需要通过本地服务器运行，请双击 start.cmd 启动。';
+      }
+      window.setTimeout(function () {
+        if (window.__NEON_READY__) return;
+        if (hint) hint.hidden = false;
+      }, 4500);
+    })();
+  </script>
+  <script type="module" src="./js/game.js"></script>
+</body>
+</html>
