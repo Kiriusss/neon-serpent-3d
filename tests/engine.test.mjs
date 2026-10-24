@@ -110,16 +110,19 @@ test("speed increases as food is eaten", () => {
   assert.equal(engine.eaten, 4);
 });
 
-test("walls end the run in every axis", () => {
-  const engine = playingEngine();
-  setSnake(engine, [
+test("every face wraps to the opposite side", () => {
+  const horizontal = playingEngine();
+  setSnake(horizontal, [
     { x: 0, y: 4, z: 4 },
     { x: 1, y: 4, z: 4 },
     { x: 2, y: 4, z: 4 },
     { x: 3, y: 4, z: 4 },
   ], { x: -1, y: 0, z: 0 });
-  assert.equal(engine.step().cause, "wall");
-  assert.equal(engine.phase, "dead");
+  const hx = horizontal.step();
+  assert.equal(hx.type, "move");
+  assert.equal(horizontal.head.x, 12);
+  assert.equal(horizontal.phase, "playing");
+  assert.deepEqual(hx.wrap.axes, ["x"]);
 
   const vertical = playingEngine();
   setSnake(vertical, [
@@ -128,7 +131,34 @@ test("walls end the run in every axis", () => {
     { x: 4, y: 10, z: 4 },
     { x: 4, y: 9, z: 4 },
   ], { x: 0, y: 1, z: 0 });
-  assert.equal(vertical.step().cause, "wall");
+  const vy = vertical.step();
+  assert.equal(vy.type, "move");
+  assert.equal(vertical.head.y, 0);
+  assert.equal(vertical.phase, "playing");
+
+  const depth = playingEngine();
+  setSnake(depth, [
+    { x: 4, y: 4, z: 0 },
+    { x: 4, y: 4, z: 1 },
+    { x: 4, y: 4, z: 2 },
+    { x: 4, y: 4, z: 3 },
+  ], { x: 0, y: 0, z: -1 });
+  const dz = depth.step();
+  assert.equal(dz.type, "move");
+  assert.equal(depth.head.z, 12);
+  assert.equal(depth.phase, "playing");
+});
+
+test("the stationary starting snake can pivot toward the first control", () => {
+  const engine = playingEngine();
+  assert.equal(engine.orient(0, 1, 0), true);
+  assert.deepEqual(engine.direction, { x: 0, y: 1, z: 0 });
+  assert.equal(engine.snake[0].y, 6);
+  assert.ok(engine.snake.every((cell) => cell.x === 6 && cell.z === 6));
+  assert.deepEqual(engine.snake[1], { x: 6, y: 5, z: 6 });
+  const event = engine.step();
+  assert.equal(event.type, "move");
+  assert.equal(engine.head.y, 7);
 });
 
 test("self collision works in 3D", () => {

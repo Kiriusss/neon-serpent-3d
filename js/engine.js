@@ -184,23 +184,23 @@ export class SnakeEngine {
     const oldSnake = copySnake(this.snake);
     this.prevSnake = oldSnake;
 
-    // The arena is a closed cube.
-    if (
-      nextHead.x < 0 ||
-      nextHead.y < 0 ||
-      nextHead.z < 0 ||
-      nextHead.x >= this.grid ||
-      nextHead.y >= this.grid ||
-      nextHead.z >= this.grid
-    ) {
-      return this.endGame("wall", oldSnake);
-    }
+    // Every face of the cube is a portal: exit one side, enter the opposite side.
+    const wrappedAxes = [];
+    if (nextHead.x < 0) { nextHead.x += this.grid; wrappedAxes.push("x"); }
+    else if (nextHead.x >= this.grid) { nextHead.x -= this.grid; wrappedAxes.push("x"); }
+    if (nextHead.y < 0) { nextHead.y += this.grid; wrappedAxes.push("y"); }
+    else if (nextHead.y >= this.grid) { nextHead.y -= this.grid; wrappedAxes.push("y"); }
+    if (nextHead.z < 0) { nextHead.z += this.grid; wrappedAxes.push("z"); }
+    else if (nextHead.z >= this.grid) { nextHead.z -= this.grid; wrappedAxes.push("z"); }
+    const wrapInfo = wrappedAxes.length
+      ? { axes: wrappedAxes, from: copyCell(head), to: copyCell(nextHead) }
+      : null;
 
     const willEat = cellsEqual(nextHead, this.food);
     // The tail vacates its cell on this step unless the snake is growing.
     const body = willEat ? this.snake : this.snake.slice(0, this.snake.length - 1);
     if (body.some((cell) => cellsEqual(cell, nextHead))) {
-      return this.endGame("self", oldSnake);
+      return this.endGame("self", oldSnake, wrapInfo);
     }
 
     this.snake = [nextHead, ...oldSnake];
@@ -208,7 +208,7 @@ export class SnakeEngine {
 
     if (!willEat) {
       this.snake.pop();
-      this.lastEvent = { type: "move", cell: nextHead };
+      this.lastEvent = { type: "move", cell: nextHead, wrap: wrapInfo };
       return this.lastEvent;
     }
 
@@ -233,6 +233,7 @@ export class SnakeEngine {
         gained,
         combo: this.combo,
         eatenFood,
+        wrap: wrapInfo,
         score: this.score,
       };
       return this.lastEvent;
@@ -245,13 +246,14 @@ export class SnakeEngine {
       combo: this.combo,
       eatenFood,
       food: nextFood,
+      wrap: wrapInfo,
       score: this.score,
       tickMs: this.tickMs,
     };
     return this.lastEvent;
   }
 
-  endGame(cause, oldSnake = copySnake(this.snake)) {
+  endGame(cause, oldSnake = copySnake(this.snake), wrap = null) {
     this.prevSnake = oldSnake;
     this.phase = "dead";
     this.deathCause = cause;
@@ -261,8 +263,35 @@ export class SnakeEngine {
       cell: copyCell(oldSnake[0]),
       score: this.score,
       length: oldSnake.length,
+      wrap,
     };
     return this.lastEvent;
+  }
+
+  /**
+   * Before the first move, the snake may pivot its whole starting body so the
+   * first control direction is always valid.
+   */
+  orient(x, y, z) {
+    if (this.phase !== "playing") return false;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) return false;
+    if (Math.abs(x) + Math.abs(y) + Math.abs(z) !== 1) return false;
+    const center = Math.floor(this.grid / 2);
+    this.direction = { x, y, z };
+    this.turnQueue = [];
+    this.snake = [{ x: center, y: center, z: center }];
+    for (let i = 1; i < START_LENGTH; i += 1) {
+      this.snake.push({
+        x: center - x * i,
+        y: center - y * i,
+        z: center - z * i,
+      });
+    }
+    this.prevSnake = copySnake(this.snake);
+    if (this.food && this.snake.some((cell) => cellsEqual(cell, this.food))) {
+      this.spawnFood();
+    }
+    return true;
   }
 
   /* ------------------------------------------------------------

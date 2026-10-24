@@ -23,6 +23,14 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+/** Interpolate on a torus so a portal crossing travels to the near face. */
+function wrappedLerp(from, to, t) {
+  let delta = to - from;
+  if (delta > GRID_SIZE / 2) delta -= GRID_SIZE;
+  else if (delta < -GRID_SIZE / 2) delta += GRID_SIZE;
+  return from + delta * t;
+}
+
 export function cellToWorld(cell) {
   return new THREE.Vector3(
     cell.x - CELL_CENTER,
@@ -358,9 +366,9 @@ export class SnakeView {
       const mesh = this.segmentMeshes[i - 1];
       const from = prevSnake[Math.min(i, prevSnake.length - 1)] || snake[i];
       const to = snake[i];
-      const x = lerp(from.x - CELL_CENTER, to.x - CELL_CENTER, progress);
-      const y = lerp(from.y - CELL_CENTER, to.y - CELL_CENTER, progress);
-      const z = lerp(from.z - CELL_CENTER, to.z - CELL_CENTER, progress);
+      const x = wrappedLerp(from.x, to.x, progress) - CELL_CENTER;
+      const y = wrappedLerp(from.y, to.y, progress) - CELL_CENTER;
+      const z = wrappedLerp(from.z, to.z, progress) - CELL_CENTER;
       const taper = 1 - 0.24 * (i / Math.max(1, n));
       const wave = 1 + Math.sin(time * 3.1 - i * 0.55) * 0.018;
       const materialIndex = Math.min(
@@ -409,9 +417,9 @@ export class SnakeView {
 
     const headFrom = prevSnake[0] || snake[0];
     const headTo = snake[0];
-    const hx = lerp(headFrom.x - CELL_CENTER, headTo.x - CELL_CENTER, progress);
-    const hy = lerp(headFrom.y - CELL_CENTER, headTo.y - CELL_CENTER, progress);
-    const hz = lerp(headFrom.z - CELL_CENTER, headTo.z - CELL_CENTER, progress);
+    const hx = wrappedLerp(headFrom.x, headTo.x, progress) - CELL_CENTER;
+    const hy = wrappedLerp(headFrom.y, headTo.y, progress) - CELL_CENTER;
+    const hz = wrappedLerp(headFrom.z, headTo.z, progress) - CELL_CENTER;
 
     const targetQuaternion = directionQuaternion(direction.x, direction.y, direction.z);
     this.headGroup.quaternion.slerp(targetQuaternion, 1 - Math.exp(-16 * Math.min(dt, 0.05)));

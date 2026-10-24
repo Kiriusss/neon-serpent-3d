@@ -29,25 +29,26 @@ const STORAGE = {
   difficulty: "neonSerpent.difficulty.v1",
 };
 
+// Controls are camera-relative on the horizontal plane.
 const DIRECTION_KEYS = {
-  ArrowUp: { x: 0, y: 0, z: -1 },
-  KeyW: { x: 0, y: 0, z: -1 },
-  ArrowDown: { x: 0, y: 0, z: 1 },
-  KeyS: { x: 0, y: 0, z: 1 },
-  ArrowLeft: { x: -1, y: 0, z: 0 },
-  KeyA: { x: -1, y: 0, z: 0 },
-  ArrowRight: { x: 1, y: 0, z: 0 },
-  KeyD: { x: 1, y: 0, z: 0 },
-  KeyQ: { x: 0, y: 1, z: 0 },
-  KeyE: { x: 0, y: -1, z: 0 },
-  ShiftLeft: { x: 0, y: -1, z: 0 },
-  ShiftRight: { x: 0, y: -1, z: 0 },
-  up: { x: 0, y: 0, z: -1 },
-  down: { x: 0, y: 0, z: 1 },
-  left: { x: -1, y: 0, z: 0 },
-  right: { x: 1, y: 0, z: 0 },
-  rise: { x: 0, y: 1, z: 0 },
-  fall: { x: 0, y: -1, z: 0 },
+  ArrowUp: "forward",
+  KeyW: "forward",
+  ArrowDown: "back",
+  KeyS: "back",
+  ArrowLeft: "left",
+  KeyA: "left",
+  ArrowRight: "right",
+  KeyD: "right",
+  KeyQ: "up",
+  KeyE: "down",
+  ShiftLeft: "down",
+  ShiftRight: "down",
+  up: "forward",
+  down: "back",
+  left: "left",
+  right: "right",
+  rise: "up",
+  fall: "down",
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -168,7 +169,11 @@ class NeonSerpent {
     this.baseFov = 44;
     this.frameDistance = 25;
     this.lookTarget = new THREE.Vector3(0, 0, 0);
-    this.pointerStart = null;
+    this.cameraAzimuth = 0.3;
+    this.cameraElevation = 0.68;
+    this.cameraTargetAzimuth = 0.3;
+    this.cameraTargetElevation = 0.68;
+    this.dragState = null;
     this.debugFreeze = false;
     this.awaitingFirstMove = false;
     this.loop = this.loop.bind(this);
@@ -569,8 +574,8 @@ class NeonSerpent {
     for (const button of this.dom.touchButtons) {
       button.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        const direction = DIRECTION_KEYS[button.dataset.dir];
-        if (direction) this.handleDirection(direction);
+        const control = DIRECTION_KEYS[button.dataset.dir];
+        if (control) this.handleControl(control);
       });
     }
 
@@ -587,32 +592,48 @@ class NeonSerpent {
   setupInput() {
     document.addEventListener("keydown", (event) => this.onKeyDown(event));
 
-    this.dom.canvas.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse") return;
-      this.pointerStart = {
+    const canvas = this.dom.canvas;
+
+    const stopDrag = (event) => {
+      if (!this.dragState) return;
+      if (event && event.pointerId !== this.dragState.pointerId) return;
+      this.dragState = null;
+      this.dom.app.classList.remove("is-dragging");
+    };
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      this.dragState = {
+        pointerId: event.pointerId,
         x: event.clientX,
         y: event.clientY,
-        pointerId: event.pointerId,
+        moved: 0,
       };
+      if (typeof canvas.setPointerCapture === "function") {
+        canvas.setPointerCapture(event.pointerId);
+      }
+      this.dom.app.classList.add("is-dragging");
     });
 
-    const finishPointer = (event) => {
-      if (!this.pointerStart) return;
-      const start = this.pointerStart;
-      this.pointerStart = null;
-      const dx = event.clientX - start.x;
-      const dy = event.clientY - start.y;
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        this.handleDirection({ x: dx > 0 ? 1 : -1, y: 0, z: 0 });
-      } else {
-        this.handleDirection({ x: 0, y: 0, z: dy > 0 ? 1 : -1 });
-      }
-    };
-    this.dom.canvas.addEventListener("pointerup", finishPointer);
-    this.dom.canvas.addEventListener("pointercancel", () => {
-      this.pointerStart = null;
+    canvas.addEventListener("pointermove", (event) => {
+      if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+      const dx = event.clientX - this.dragState.x;
+      const dy = event.clientY - this.dragState.y;
+      this.dragState.x = event.clientX;
+      this.dragState.y = event.clientY;
+      this.dragState.moved += Math.abs(dx) + Math.abs(dy);
+      this.cameraTargetAzimuth -= dx * 0.006;
+      this.cameraTargetElevation = clamp(
+        this.cameraTargetElevation + dy * 0.004,
+        0.34,
+        1.2
+      );
+      if (event.cancelable) event.preventDefault();
     });
+
+    canvas.addEventListener("pointerup", stopDrag);
+    canvas.addEventListener("pointercancel", stopDrag);
+    canvas.addEventListener("lostpointercapture", stopDrag);
   }
 
   toggleSound() {
@@ -840,34 +861,54 @@ class NeonSerpent {
     this.audio.resume();
   }
 
+  handleControl(control) {
+    const direction = this.controlDirection(control);
+    if (direction) this.handleDirection(direction);
+  }
+
+  /**
+   * Snap a screen-relative control to the nearest world grid axis.
+   * W/S follow the camera's horizontal forward vector; A/D strafe.
+   */
+  controlDirection(control) {
+    if (control === "up") return { x: 0, y: 1, z: 0 };
+    if (control === "down") return { x: 0, y: -1, z: 0 };
+    const az = this.cameraAzimuth;
+    let vx = 0;
+    let vz = 0;
+    if (control === "forward") {
+      vx = -Math.sin(az);
+      vz = -Math.cos(az);
+    } else if (control === "back") {
+      vx = Math.sin(az);
+      vz = Math.cos(az);
+    } else if (control === "left") {
+      vx = -Math.cos(az);
+      vz = Math.sin(az);
+    } else if (control === "right") {
+      vx = Math.cos(az);
+      vz = -Math.sin(az);
+    } else {
+      return null;
+    }
+    if (Math.abs(vx) >= Math.abs(vz)) {
+      return { x: vx >= 0 ? 1 : -1, y: 0, z: 0 };
+    }
+    return { x: 0, y: 0, z: vz >= 0 ? 1 : -1 };
+  }
+
   handleDirection(direction) {
     if (!direction) return;
     const { x = 0, y = 0, z = 0 } = direction;
     if (this.appState === "menu" || this.appState === "gameover") {
       this.startGame();
-      const accepted = this.engine.setDirection(x, y, z);
-      const same =
-        x === this.engine.direction.x &&
-        y === this.engine.direction.y &&
-        z === this.engine.direction.z;
-      if (accepted || same) this.beginMovement();
-      return;
     }
     if (this.appState === "playing") {
-      const accepted = this.engine.setDirection(x, y, z);
-      const same =
-        x === this.engine.direction.x &&
-        y === this.engine.direction.y &&
-        z === this.engine.direction.z;
       if (this.awaitingFirstMove) {
-        if (accepted || same) {
-          this.beginMovement();
-        } else {
-          this.showToast("这个方向被身体挡住了 // 换个方向", 1100, true);
-        }
+        if (this.engine.orient(x, y, z)) this.beginMovement();
         return;
       }
-      if (accepted) this.audio.turn();
+      if (this.engine.setDirection(x, y, z)) this.audio.turn();
       return;
     }
     if (this.appState === "paused") this.resumeGame();
@@ -914,7 +955,7 @@ class NeonSerpent {
     if (isSpace) {
       event.preventDefault();
       if (this.appState === "playing") {
-        this.handleDirection({ x: 0, y: 1, z: 0 });
+        this.handleControl("up");
       } else if (this.appState === "menu" || this.appState === "gameover") {
         this.startGame();
       } else if (this.appState === "paused") {
@@ -935,7 +976,7 @@ class NeonSerpent {
 
     if (direction) {
       event.preventDefault();
-      this.handleDirection(direction);
+      this.handleControl(direction);
       return;
     }
 
@@ -977,11 +1018,32 @@ class NeonSerpent {
 
   handleEngineEvent(event) {
     if (!event) return;
+    if (event.wrap) this.handleWrap(event.wrap);
     if (event.type === "eat") {
       this.handleEat(event);
     } else if (event.type === "death" || event.type === "win") {
       this.handleEnd(event);
     }
+  }
+
+  handleWrap(wrap) {
+    if (!wrap || !wrap.from || !wrap.to) return;
+    const exit = this.cellToWorld(wrap.from, 0.3);
+    const entry = this.cellToWorld(wrap.to, 0.3);
+    const settings = {
+      count: 14,
+      colors: [MINT, CREAM, LIME],
+      speed: 2.8,
+      spread: 0.16,
+      life: 0.5,
+      size: 0.95,
+      gravity: 2.4,
+      upward: 1.2,
+    };
+    this.particles.emit(exit, settings);
+    this.particles.emit(entry, settings);
+    this.fovPulse = Math.max(this.fovPulse, 0.24);
+    this.shake = Math.max(this.shake, 0.025);
   }
 
   handleEat(event) {
@@ -1175,13 +1237,15 @@ class NeonSerpent {
   }
 
   updateCamera(dt, now, immediate = false) {
-    const menuLike =
-      this.appState === "menu" || this.appState === "boot" || this.appState === "gameover";
-    const idle = menuLike && !this.reducedMotion;
-    const az = 0.3 + (idle ? Math.sin(this.time * 0.09) * 0.035 : 0);
-    const elevation = 0.68 + (idle ? Math.sin(this.time * 0.15) * 0.01 : 0);
-    const distance =
-      this.frameDistance * (idle ? 1 + Math.sin(this.time * 0.17) * 0.006 : 1);
+    const angleFollow = immediate ? 1 : 1 - Math.exp(-7 * Math.max(dt, 0.001));
+    this.cameraAzimuth +=
+      (this.cameraTargetAzimuth - this.cameraAzimuth) * angleFollow;
+    this.cameraElevation +=
+      (this.cameraTargetElevation - this.cameraElevation) * angleFollow;
+
+    const az = this.cameraAzimuth;
+    const elevation = this.cameraElevation;
+    const distance = this.frameDistance;
 
     const target = new THREE.Vector3(0, 0, 0);
     if (this.appState === "playing" || this.appState === "paused" || this.appState === "dead") {
