@@ -40,6 +40,8 @@ const DIRECTION_KEYS = {
   KeyD: { x: 1, y: 0, z: 0 },
   KeyQ: { x: 0, y: 1, z: 0 },
   KeyE: { x: 0, y: -1, z: 0 },
+  ShiftLeft: { x: 0, y: -1, z: 0 },
+  ShiftRight: { x: 0, y: -1, z: 0 },
   up: { x: 0, y: 0, z: -1 },
   down: { x: 0, y: 0, z: 1 },
   left: { x: -1, y: 0, z: 0 },
@@ -111,6 +113,7 @@ class NeonSerpent {
       altStat: $("altStat"),
       signalBars: Array.from(document.querySelectorAll("#signalBars i")),
       toast: $("toast"),
+      readyHint: $("readyHint"),
       flash: $("flash"),
       startBtn: $("startBtn"),
       retryBtn: $("retryBtn"),
@@ -167,6 +170,7 @@ class NeonSerpent {
     this.lookTarget = new THREE.Vector3(0, 0, 0);
     this.pointerStart = null;
     this.debugFreeze = false;
+    this.awaitingFirstMove = false;
     this.loop = this.loop.bind(this);
   }
 
@@ -465,7 +469,7 @@ class NeonSerpent {
     }
 
     const underGlow = new THREE.Mesh(
-      new THREE.PlaneGeometry(32, 32),
+      new THREE.PlaneGeometry(GRID_SIZE * 3.6, GRID_SIZE * 3.6),
       new THREE.MeshBasicMaterial({
         map: this.glowTexture,
         color: 0x1affae,
@@ -488,7 +492,7 @@ class NeonSerpent {
       metalness: 0.28,
     });
     const platform = new THREE.Mesh(
-      new THREE.CylinderGeometry(8.0, 9.2, 1.15, 96),
+      new THREE.CylinderGeometry(GRID_SIZE * 0.88, GRID_SIZE * 1.02, 1.15, 96),
       platformMaterial
     );
     platform.position.y = ARENA_FLOOR - 0.85;
@@ -496,7 +500,7 @@ class NeonSerpent {
     this.scene.add(platform);
 
     const platformLip = new THREE.Mesh(
-      new THREE.CylinderGeometry(8.05, 8.05, 0.1, 96),
+      new THREE.CylinderGeometry(GRID_SIZE * 0.885, GRID_SIZE * 0.885, 0.1, 96),
       new THREE.MeshStandardMaterial({
         color: 0x0b2418,
         roughness: 0.42,
@@ -508,9 +512,9 @@ class NeonSerpent {
 
     this.boardRings = [];
     const ringData = [
-      [7.5, 0.55, 0.018, ARENA_FLOOR - 0.5],
-      [8.9, 0.32, 0.014, ARENA_FLOOR - 0.8],
-      [10.1, 0.16, 0.01, ARENA_FLOOR - 1.2],
+      [GRID_SIZE * 0.83, 0.55, 0.018, ARENA_FLOOR - 0.5],
+      [GRID_SIZE * 0.99, 0.32, 0.014, ARENA_FLOOR - 0.8],
+      [GRID_SIZE * 1.12, 0.16, 0.01, ARENA_FLOOR - 1.2],
     ];
     for (const [radius, opacity, tube, y] of ringData) {
       const ring = new THREE.Mesh(
@@ -759,6 +763,8 @@ class NeonSerpent {
     this.shake = 0;
     this.dangerFlash = 0;
     this.lastTickMs = this.engine.tickMs;
+    this.awaitingFirstMove = false;
+    this.dom.readyHint.hidden = true;
     this.dom.startPanel.hidden = false;
     this.dom.overPanel.hidden = true;
     this.dom.pausePanel.hidden = true;
@@ -782,8 +788,8 @@ class NeonSerpent {
     this.snakeView.revive();
     this.foodView.setCell(this.engine.food, performance.now(), false);
     this.foodView.setVisible(true);
-    this.nextTickAt = performance.now() + 1500;
-    this.progress = 0;
+    this.nextTickAt = Infinity;
+    this.progress = 1;
     this.deathT = 0;
     this.deathStartedAt = 0;
     this.gameWon = false;
@@ -796,9 +802,10 @@ class NeonSerpent {
     this.dom.combo.dataset.active = "false";
     this.lastTickMs = this.engine.tickMs;
     this.debugFreeze = false;
+    this.awaitingFirstMove = true;
+    this.dom.readyHint.hidden = false;
     this.syncHud();
     this.flash(false);
-    this.showToast("SIGNAL LOCKED // 方向键移动 · Q/E 升降", 1600);
     if (document.activeElement && typeof document.activeElement.blur === "function") {
       document.activeElement.blur();
     }
@@ -812,6 +819,7 @@ class NeonSerpent {
     this.dom.app.dataset.state = "paused";
     this.dom.screenKicker.textContent = auto ? "AUTO PAUSE / 已自动暂停" : "PAUSE PROTOCOL / 002";
     this.showScreen("paused");
+    this.dom.readyHint.hidden = true;
     this.dom.combo.dataset.active = "false";
     this.audio.pause();
   }
@@ -822,8 +830,13 @@ class NeonSerpent {
     this.appState = "playing";
     this.dom.app.dataset.state = "playing";
     this.hideScreen();
-    this.nextTickAt =
-      performance.now() + Math.max(65, this.engine.tickMs * (1 - this.pausedProgress));
+    if (this.awaitingFirstMove) {
+      this.nextTickAt = Infinity;
+      this.dom.readyHint.hidden = false;
+    } else {
+      this.nextTickAt =
+        performance.now() + Math.max(65, this.engine.tickMs * (1 - this.pausedProgress));
+    }
     this.audio.resume();
   }
 
@@ -832,18 +845,46 @@ class NeonSerpent {
     const { x = 0, y = 0, z = 0 } = direction;
     if (this.appState === "menu" || this.appState === "gameover") {
       this.startGame();
-      if (this.engine.setDirection(x, y, z)) this.audio.turn();
+      const accepted = this.engine.setDirection(x, y, z);
+      const same =
+        x === this.engine.direction.x &&
+        y === this.engine.direction.y &&
+        z === this.engine.direction.z;
+      if (accepted || same) this.beginMovement();
       return;
     }
     if (this.appState === "playing") {
-      if (this.engine.setDirection(x, y, z)) this.audio.turn();
+      const accepted = this.engine.setDirection(x, y, z);
+      const same =
+        x === this.engine.direction.x &&
+        y === this.engine.direction.y &&
+        z === this.engine.direction.z;
+      if (this.awaitingFirstMove) {
+        if (accepted || same) {
+          this.beginMovement();
+        } else {
+          this.showToast("这个方向被身体挡住了 // 换个方向", 1100, true);
+        }
+        return;
+      }
+      if (accepted) this.audio.turn();
       return;
     }
     if (this.appState === "paused") this.resumeGame();
   }
 
+  beginMovement() {
+    if (!this.awaitingFirstMove) return;
+    this.awaitingFirstMove = false;
+    this.dom.readyHint.hidden = true;
+    this.nextTickAt = performance.now() + 240;
+    this.progress = 0;
+    this.showToast("GO // 保持移动", 800);
+  }
+
   forceTick() {
     if (this.appState !== "playing") return null;
+    if (this.awaitingFirstMove) this.beginMovement();
     const event = this.engine.step();
     this.handleEngineEvent(event);
     if (this.engine.phase === "playing") {
@@ -858,29 +899,43 @@ class NeonSerpent {
   onKeyDown(event) {
     const code = event.code;
     const direction = DIRECTION_KEYS[code];
-    const isActivation = code === "Space" || code === "Enter";
     const focusedButton =
       document.activeElement && document.activeElement.tagName === "BUTTON";
+    const isSpace = code === "Space";
+    const isEnter = code === "Enter";
 
     if (event.repeat) {
-      if (direction || isActivation) event.preventDefault();
+      if (direction || isSpace || isEnter) event.preventDefault();
       return;
     }
 
-    if (isActivation && focusedButton) return;
+    if ((isSpace || isEnter) && focusedButton) return;
+
+    if (isSpace) {
+      event.preventDefault();
+      if (this.appState === "playing") {
+        this.handleDirection({ x: 0, y: 1, z: 0 });
+      } else if (this.appState === "menu" || this.appState === "gameover") {
+        this.startGame();
+      } else if (this.appState === "paused") {
+        this.resumeGame();
+      } else if (this.appState === "dead") {
+        this.showGameOver();
+      }
+      return;
+    }
+
+    if (isEnter) {
+      event.preventDefault();
+      if (this.appState === "menu" || this.appState === "gameover") this.startGame();
+      else if (this.appState === "paused") this.resumeGame();
+      else if (this.appState === "dead") this.showGameOver();
+      return;
+    }
 
     if (direction) {
       event.preventDefault();
       this.handleDirection(direction);
-      return;
-    }
-
-    if (isActivation) {
-      event.preventDefault();
-      if (this.appState === "menu" || this.appState === "gameover") this.startGame();
-      else if (this.appState === "playing") this.pauseGame();
-      else if (this.appState === "paused") this.resumeGame();
-      else if (this.appState === "dead") this.showGameOver();
       return;
     }
 
@@ -1061,6 +1116,8 @@ class NeonSerpent {
     this.appState = "gameover";
     this.dom.app.dataset.state = "gameover";
     this.deathT = 1;
+    this.awaitingFirstMove = false;
+    this.dom.readyHint.hidden = true;
     if (!this.gameWon) this.snakeView.hide();
     this.showScreen("gameover");
     this.dom.screenKicker.textContent = "ARCADE PROTOCOL / 002";
@@ -1111,7 +1168,7 @@ class NeonSerpent {
   }
 
   computeFrameDistance() {
-    const halfSize = 9.2;
+    const halfSize = GRID_SIZE * 1.02;
     const vTan = Math.tan((this.baseFov * Math.PI) / 360);
     const hTan = vTan * this.camera.aspect;
     return Math.max(halfSize / vTan, halfSize / Math.max(0.001, hTan));
@@ -1128,7 +1185,7 @@ class NeonSerpent {
 
     const target = new THREE.Vector3(0, 0, 0);
     if (this.appState === "playing" || this.appState === "paused" || this.appState === "dead") {
-      const head = this.engine.snake[0] || { x: 4, y: 4, z: 4 };
+      const head = this.engine.snake[0] || { x: CELL_CENTER, y: CELL_CENTER, z: CELL_CENTER };
       target.x = (head.x - CELL_CENTER) * 0.035;
       target.y = (head.y - CELL_CENTER) * 0.035;
       target.z = (head.z - CELL_CENTER) * 0.035;

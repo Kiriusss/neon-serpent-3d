@@ -100,7 +100,7 @@ export function createSegmentGeometry({
 
 /** A 3D coiled demo snake for the attract screen. Head first. */
 function buildDemoSnake() {
-  const path = [{ x: 2, y: 2, z: 2 }];
+  const path = [{ x: 3, y: 3, z: 3 }];
   const advance = (dx, dy, dz, count) => {
     for (let i = 0; i < count; i += 1) {
       const last = path[path.length - 1];
@@ -119,7 +119,7 @@ function buildDemoSnake() {
 }
 
 export const DEMO_SNAKE = Object.freeze(buildDemoSnake());
-export const DEMO_FOOD = Object.freeze({ x: 2, y: 7, z: 7 });
+export const DEMO_FOOD = Object.freeze({ x: 3, y: 9, z: 8 });
 
 /* ------------------------------------------------------------
    Snake

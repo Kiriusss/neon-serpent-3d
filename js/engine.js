@@ -3,7 +3,7 @@
  * Pure logic, no DOM, no rendering. Coordinates are (x, y, z) cells.
  */
 
-export const GRID_SIZE = 9;
+export const GRID_SIZE = 13;
 export const CELL_SIZE = 1;
 
 export const DIFFICULTIES = Object.freeze({
