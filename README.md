@@ -2,6 +2,10 @@
 
 一个纯前端、零构建的 3D 霓虹贪吃蛇。场景、蛇、食物与粒子全部由 Three.js 实时渲染，音效由 Web Audio 实时合成，不依赖任何外部图片、字体或 CDN。
 
+## 在线游玩
+
+**[打开 NEON SERPENT](https://kiriusss.github.io/neon-serpent-3d/)**
+
 ![NEON SERPENT 3D](screenshots/hero.png)
 
 ## 运行
